@@ -1,19 +1,21 @@
 dev_mode = False
 
+from visualizer import get_local
+get_local.activate()
+
 # 1. Some basic setting
 from pathlib import Path
 from typing import Callable, Dict
 
 pretrained_model_name_or_path = 'bert-base-uncased'
 task_name = 'mnli'
-experiment_id = 'pruning_bert_mnli'
 
 # heads_num and layers_num should align with pretrained_model_name_or_path
 heads_num = 12
 layers_num = 12
 
 # used to save the experiment log
-log_dir = Path(f'./pruning_log/{pretrained_model_name_or_path}/{task_name}/{experiment_id}')
+log_dir = Path(f'./logs/{pretrained_model_name_or_path}/{task_name}')
 log_dir.mkdir(parents=True, exist_ok=True)
 
 # used to save the finetuned model and share between different experiemnts with same pretrained_model_name_or_path and task_name
@@ -61,7 +63,7 @@ def prepare_dataloaders(cache_dir=data_dir, train_batch_size=32, eval_batch_size
         args = (
             (examples[sentence1_key],) if sentence2_key is None else (examples[sentence1_key], examples[sentence2_key])
         )
-        result = tokenizer(*args, padding=False, max_length=128, truncation=True)
+        result = tokenizer(*args, padding='max_length', max_length=128, truncation=True)
 
         if 'label' in examples:
             # In all cases, rename the column to labels because the model will expect that.
@@ -73,7 +75,7 @@ def prepare_dataloaders(cache_dir=data_dir, train_batch_size=32, eval_batch_size
         if 'test' in key:
             raw_datasets.pop(key)
 
-    processed_datasets = raw_datasets.map(preprocess_function, batched=True,
+    processed_datasets = raw_datasets.map(preprocess_function, batched=True, num_proc=8,
                                           remove_columns=raw_datasets['train'].column_names)
 
     train_dataset = processed_datasets['train']
@@ -84,7 +86,7 @@ def prepare_dataloaders(cache_dir=data_dir, train_batch_size=32, eval_batch_size
         }
     else:
         validation_datasets = {
-            'validation': processed_datasets['validation']
+            'validation': processed_datasets['validation']  # .shuffle(seed=42).select(range(500))
         }
 
     train_dataloader = DataLoader(train_dataset, shuffle=True, collate_fn=data_collator, batch_size=train_batch_size)
@@ -103,9 +105,7 @@ train_dataloader, validation_dataloaders = prepare_dataloaders()
 import functools
 import time
 
-import torch.nn.functional as F
 import evaluate
-from transformers.modeling_outputs import SequenceClassifierOutput
 
 
 def training(model: torch.nn.Module,
@@ -115,9 +115,7 @@ def training(model: torch.nn.Module,
              max_steps: int = None,
              max_epochs: int = None,
              train_dataloader: DataLoader = None,
-             distillation: bool = False,
              teacher_model: torch.nn.Module = None,
-             distil_func: Callable = None,
              log_path: str = Path(log_dir) / 'training.log',
              save_best_model: bool = False,
              save_path: str = None,
@@ -146,13 +144,6 @@ def training(model: torch.nn.Module,
             outputs = model(**batch)
             loss = outputs.loss
 
-            if distillation:
-                assert teacher_model is not None
-                with torch.no_grad():
-                    teacher_outputs = teacher_model(**batch)
-                distil_loss = distil_func(outputs, teacher_outputs)
-                loss = 0.1 * loss + 0.9 * distil_loss
-
             loss = criterion(loss, None)
             optimizer.zero_grad()
             loss.backward()
@@ -174,19 +165,6 @@ def training(model: torch.nn.Module,
                     assert save_path is not None
                     torch.save(model.state_dict(), save_path)
                     best_result = None if result is None else result['default']
-
-
-def distil_loss_func(stu_outputs: SequenceClassifierOutput, tea_outputs: SequenceClassifierOutput, encoder_layer_idxs=[]):
-    encoder_hidden_state_loss = []
-    for i, idx in enumerate(encoder_layer_idxs[:-1]):
-        encoder_hidden_state_loss.append(F.mse_loss(stu_outputs.hidden_states[i], tea_outputs.hidden_states[idx]))
-    logits_loss = F.kl_div(F.log_softmax(stu_outputs.logits / 2, dim=-1), F.softmax(tea_outputs.logits / 2, dim=-1), reduction='batchmean') * (2 ** 2)
-
-    distil_loss = 0
-    for loss in encoder_hidden_state_loss:
-        distil_loss += loss
-    distil_loss += logits_loss
-    return distil_loss
 
 
 def evaluation(model: torch.nn.Module, validation_dataloaders: Dict[str, DataLoader] = None, device=None):
@@ -264,5 +242,24 @@ def create_finetuned_model():
 
 finetuned_model = create_finetuned_model()
 
+print("================= start evaluation =================")
 res = evaluation(finetuned_model, validation_dataloaders, device)
 print(res)
+
+print("================= print attention intermediate results =================")
+cache = get_local.cache
+print(list(cache.keys()))
+attention_maps = cache['BertSelfAttention.forward']
+print(len(attention_maps))
+attn_shape = attention_maps[0].shape
+print(attn_shape)
+batch_size = attn_shape[0]
+# heads_num
+import math
+import numpy as np
+for layers in np.array_split(attention_maps, math.ceil(len(attention_maps)/layers_num)):
+    for one_layer in layers:
+        attn_score = one_layer[0][0] # 选取第一个sentence+第一个head的结果进行分析
+
+print("================= clear cache =================")
+get_local.clear()
