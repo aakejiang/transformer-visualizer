@@ -86,28 +86,23 @@ class Attention(nn.Module):
 其他细节请参考 notebooks/transformer-visualizer.ipynb 文件
 ## 代码组织结构
 
-* timm: is a [library](https://huggingface.co/docs/timm/index) containing SOTA computer vision models, layers, utilities, optimizers, schedulers, data-loaders, augmentations, and training/evaluation scripts. forked from [pytorch-image-models](https://github.com/huggingface/pytorch-image-models/)
+* timm: is a [library](https://huggingface.co/timm) containing SOTA computer vision models, layers, utilities, optimizers, schedulers, data-loaders, augmentations, and training/evaluation scripts. forked from [pytorch-image-models](https://github.com/huggingface/pytorch-image-models/)
 
 * transformers: is the standard implementation from huggingface. forked from [huggingface/transformers](https://github.com/huggingface/transformers/) 注：本项目主要用了它实现的BERT模型。
+UPDATE: 已改用 bertviz/transformers_lm_modeling 中包含的BERT模型。
+
+* bertviz: visualizer for language models like bert.
+
+* bertviz/transformers_lm_modeling: contains language models like bert, gpt2, roberta and scripts. forked from [bertviz/transformers_neuron_view](https://github.com/jessevig/bertviz)
 
 * visualizer: a tool to get intermediate results
 
-## 可视化结果
-这里是部分可视化vit_small的结果，全部内容在[notebooks/transformer-visualizer.ipynb](https://colab.research.google.com/drive/1PCytEiL8I0lYhH6Q2EIbQD5DAeIORDk9)文件里
+## 用途
+基于get_local的能力，我们可以获取到任意中间变量的值，这里我们主要对self-attention机制的中间结果进行分析。
 
-因为普通Vit所有Attention map都是在Attention.forward中计算出来的，所以只要简单地装饰一下这个函数，我们就可以同时取出Vit中12层Transformer的所有Attention Map！
-
-一个Head的结果
-
-![a head](assets/head.png)
-
-一层所有Heads的结果
-
-![heads](assets/heads.png)
-
-某个grid的Attention Map
-
-![grid2grid](assets/grids.png)
+* 比如，取出ViT中12层Transformer的所有Attention Map，进行可视化，相关demo在[notebooks/vit/transformer-visualizer.ipynb](https://colab.research.google.com/drive/1PCytEiL8I0lYhH6Q2EIbQD5DAeIORDk9)；
+* 或者，取出BERT中12层Transformer的所有Attention Map，进行可视化，相关demo在 notebooks/bert/ 目录下；
+* 或者，统计BERT中输入的token和每层attention map的关系。
 
 ## 注意
 * 想要可视化的变量在函数内部不能被后续的同名变量覆盖了，因为get_local取的是对应名称变量在函数中的**最终值**
@@ -116,3 +111,5 @@ class Attention(nn.Module):
 
 ## references
 * [bytecode](https://blog.csdn.net/qfcy_/article/details/118890362)
+* [bertviz](https://github.com/jessevig/bertviz)
+* [Visualizer](https://github.com/luo3300612/Visualizer)
