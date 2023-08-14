@@ -102,7 +102,6 @@ venv.bak/
 
 # PyTorch weights
 *.tar
-*.pth
 *.gz
 Untitled.ipynb
 Testing notebook.ipynb
